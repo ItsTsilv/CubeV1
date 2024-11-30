@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cube Face Transitions</title>
+    <style>
+/* Root variables for consistency */
+:root {
+    --cube-size: 720px;
+    --face-color: rgba(255, 255, 255, 0.1);
+    --border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Global Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+body {
+    background: #000;
+    height: 500vh;
+    overflow-x: hidden;
+    font-family: Arial, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+.scene {
+    position: fixed;
+    width: 100%;
+    height: 100vh;
+    perspective: 2500px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.camera {
+    transform-style: preserve-3d;
+    transform: scale(0.7);
+    transition: transform 0.3s ease-out;
+}
+
+.camera.free-rotate {
+    transition: transform 0.1s ease-out;
+}
+
+.cube {
+    width: var(--cube-size);
+    height: var(--cube-size);
+    transform-style: preserve-3d;
+}
+
+.face {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: var(--face-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    border: 2px solid var(--border-color);
+    backface-visibility: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+.front  { transform: translateZ(calc(var(--cube-size) / 2)); }
+.back   { transform: rotateY(180deg) translateZ(calc(var(--cube-size) / 2)); }
+.right  { transform: rotateY(90deg) translateZ(calc(var(--cube-size) / 2)); }
+.left   { transform: rotateY(-90deg) translateZ(calc(var(--cube-size) / 2)); }
+.top    { transform: rotateX(90deg) translateZ(calc(var(--cube-size) / 2)); }
+.bottom { transform: rotateX(-90deg) translateZ(calc(var(--cube-size) / 2)); }
+
+@media (max-width: 900px) {
+    :root {
+        --cube-size: 300px;
+    }
+    .face {
+        font-size: 18px;
+    }
+}
+    </style>
+</head>
+<body>
+    <main>
+        <div class="scene">
+            <div class="camera" id="camera">
+                <div class="cube">
+                    <div class="face front">Front</div>
+                    <div class="face back">Back</div>
+                    <div class="face right">Right</div>
+                    <div class="face left">Left</div>
+                    <div class="face top">Top</div>
+                    <div class="face bottom">Bottom</div>
+                </div>
+            </div>
+        </div>
+    </main>
+    <script>
+        (function initializeCube() {
+            const camera = document.getElementById('camera');
+            let currentStep = 0;
+            let hasScrolled = false;
+            let mouseRotation = { x: 0, y: 0 };
+            let mousePosition = { x: 0, y: 0 };
+            let isAnimating = true;
+            let isFreeRotating = false;
+            let dragStart = { x: 0, y: 0 };
+            let currentRotation = { x: 0, y: 0 };
+            let isDragging = false;
+    
+            // Inertia variables
+            let momentum = { x: 0, y: 0 };
+            let lastDelta = { x: 0, y: 0 };
+            let animationFrameId = null;
+            const friction = 0.95;
+            const minimumSpeed = 0.001;
+    
+            const rotationSequence = [
+                { x: 0, y: 0, z: 0 },       // Front
+                { x: 0, y: -90, z: 0 },     // Right
+                { x: 90, y: -90, z: 0 },    // Bottom
+                { x: 0, y: -180, z: -90 },  // Back
+                { x: 90, y: -180, z: -90 }, // Left
+                { x: 90, y: -180, z: -180 },// Top
+                { x: 0, y: 0, z: 0 },       // Back to Front
+            ];
+    
+            function getAdjustedRotation(deltaX, deltaY, currentXRotation) {
+                const cosX = Math.cos(currentXRotation * Math.PI / 180);
+                return {
+                    x: -deltaY * 0.5,
+                    y: deltaX * 0.5 * Math.sign(cosX)
+                };
+            }
+    
+            function updateCubeRotation() {
+                if (isAnimating) {
+                    const floatOffset = Math.sin(Date.now() / 1000) * 35;
+                    camera.style.transform = `
+                        scale(0.7)
+                        translate3d(${mousePosition.x}px, ${mousePosition.y + floatOffset}px, 0)
+                        rotateX(${mouseRotation.x}deg)
+                        rotateY(${mouseRotation.y}deg)
+                    `;
+                    requestAnimationFrame(updateCubeRotation);
+                }
+            }
+    
+            function updateFreeRotation() {
+                const floatOffset = Math.sin(Date.now() / 3000) * 10;
+                camera.style.transform = `
+                    scale(0.4)
+                    translate3d(0, ${floatOffset}px, -500px)
+                    rotateX(${currentRotation.x}deg)
+                    rotateY(${currentRotation.y}deg)
+                `;
+            }
+    
+            function animateMomentum() {
+                if (!isFreeRotating) return;
+    
+                if (!isDragging && (Math.abs(momentum.x) > minimumSpeed || Math.abs(momentum.y) > minimumSpeed)) {
+                    const adjustedRotation = getAdjustedRotation(momentum.x * 2, momentum.y * 2, currentRotation.x);
+                    
+                    currentRotation.x += adjustedRotation.x;
+                    currentRotation.y += adjustedRotation.y;
+    
+                    momentum.x *= friction;
+                    momentum.y *= friction;
+    
+                    updateFreeRotation();
+                    animationFrameId = requestAnimationFrame(animateMomentum);
+                } else {
+                    // Continue floating animation when momentum stops
+                    animationFrameId = requestAnimationFrame(() => updateFreeRotation());
+                }
+            }
+    
+            function returnToInitialState() {
+                hasScrolled = false;
+                isAnimating = true;
+                currentStep = 0;
+                
+                camera.style.transition = 'transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
+                updateCubeRotation();
+    
+                setTimeout(() => {
+                    camera.style.transition = 'transform 0.3s ease-out';
+                }, 1500);
+            }
+            document.addEventListener('mousemove', (e) => {
+            if (isFreeRotating && isDragging) {
+                const deltaX = e.clientX - dragStart.x;
+                const deltaY = e.clientY - dragStart.y;
+                
+                const adjustedRotation = getAdjustedRotation(deltaX, deltaY, currentRotation.x);
+                
+                lastDelta = {
+                    x: adjustedRotation.x,
+                    y: adjustedRotation.y
+                };
+
+                currentRotation.x = currentRotation.x + adjustedRotation.x;
+                currentRotation.y = currentRotation.y + adjustedRotation.y;
+                
+                updateFreeRotation();
+                
+                dragStart.x = e.clientX;
+                dragStart.y = e.clientY;
+            } else if (!hasScrolled && isAnimating) {
+                const mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+                const mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+                
+                mouseRotation = {
+                    x: -mouseY * 15,
+                    y: mouseX * 15
+                };
+
+                mousePosition = {
+                    x: mouseX * 50,
+                    y: mouseY * 50
+                };
+            }
+        });
+
+        document.addEventListener('mousedown', (e) => {
+            if (isFreeRotating) {
+                isDragging = true;
+                dragStart.x = e.clientX;
+                dragStart.y = e.clientY;
+                cancelAnimationFrame(animationFrameId);
+                momentum = { x: 0, y: 0 };
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                momentum = {
+                    x: lastDelta.x,
+                    y: lastDelta.y
+                };
+                animateMomentum();
+            }
+        });
+
+        document.addEventListener('mouseleave', () => {
+            isDragging = false;
+        });
+
+        function enterFreeRotationMode() {
+            isFreeRotating = true;
+            isAnimating = false;
+            hasScrolled = false;
+            camera.classList.add('free-rotate');
+            
+            currentRotation = { x: 0, y: 0 };
+            momentum = { x: 0, y: 0 };
+            
+            camera.style.transition = 'transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
+            updateFreeRotation();
+
+            setTimeout(() => {
+                camera.style.transition = 'transform 0.1s ease-out';
+                requestAnimationFrame(function animate() {
+                    if (isFreeRotating && !isDragging) {
+                        updateFreeRotation();
+                        requestAnimationFrame(animate);
+                    }
+                });
+            }, 1500);
+        }
+        let debounceTimer;
+        window.addEventListener('scroll', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                if (!hasScrolled && !isFreeRotating) {
+                    hasScrolled = true;
+                    isAnimating = false;
+                    
+                    camera.style.transition = 'transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
+                    camera.style.transform = `
+                        scale(1)
+                        translate3d(0, 0, 300px)
+                        rotateX(0deg) 
+                        rotateY(0deg) 
+                        rotateZ(0deg)
+                    `;
+
+                    setTimeout(() => {
+                        camera.style.transition = 'transform 0.5s ease-in-out';
+                    }, 1500);
+                } else {
+                    handleScroll();
+                }
+            }, 100);
+        });
+
+        function handleScroll() {
+            const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+            const scrollProgress = window.scrollY / maxScroll;
+            const totalSteps = rotationSequence.length;
+            const newStep = Math.floor(scrollProgress * totalSteps);
+
+            const currentScrollY = window.scrollY;
+            if (!window.lastScrollY) {
+                window.lastScrollY = currentScrollY;
+            }
+            const scrollDirection = currentScrollY > window.lastScrollY ? 'down' : 'up';
+            window.lastScrollY = currentScrollY;
+
+            if (window.scrollY === 0 && scrollDirection === 'up' && currentStep === 0) {
+                returnToInitialState();
+                return;
+            }
+
+            if (isFreeRotating && scrollDirection === 'up') {
+                isFreeRotating = false;
+                isAnimating = false;
+                currentStep = 0;
+                camera.classList.remove('free-rotate');
+                
+                camera.style.transition = 'transform 1.5s cubic-bezier(0.4, 0, 0.2, 1)';
+                camera.style.transform = `
+                    scale(1)
+                    translateZ(300px)
+                    rotateX(0deg) 
+                    rotateY(0deg) 
+                    rotateZ(0deg)
+                `;
+
+                setTimeout(() => {
+                    camera.style.transition = 'transform 0.5s ease-in-out';
+                }, 1500);
+            } else if (newStep !== currentStep && !isFreeRotating) {
+                if (newStep >= totalSteps - 1) {
+                    enterFreeRotationMode();
+                } else {
+                    const rotation = rotationSequence[newStep];
+                    smoothRotate(rotation);
+                    currentStep = newStep;
+                }
+            }
+        }
+
+        function smoothRotate(rotation) {
+            camera.style.transform = `
+                scale(1)
+                translateZ(300px)
+                rotateX(${rotation.x}deg) 
+                rotateY(${rotation.y}deg) 
+                rotateZ(${rotation.z}deg)
+            `;
+        }
+
+        // Initialize cube position and start animation
+        requestAnimationFrame(function animate() {
+            if (!hasScrolled && isAnimating) {
+                updateCubeRotation();
+            }
+        });
+    })();
+</script>
+</body>
+</html>
